@@ -40,7 +40,12 @@ try {
 			case "-p":
 			case "--partition":
 			case "--partitions":
-				$partitions = explode(",", $argv[++$i]);
+				$partitions = [];
+				$tmp = explode(",", $argv[++$i]);
+				foreach ($tmp as $part) {
+					if ($part[0] !== "/") $part = "/dev/$part";
+					$partitions[] = $part;
+				}
 			break;
 			
 			case "--chunk":
@@ -70,4 +75,58 @@ try {
 	echo "    expandable-raid.php --extend --vg VOLGROUP --raid RAIDDEV --partition PART1\n";
 	echo "\n";
 	exit(1);
+}
+
+
+
+function run_command($cmd, $err_ok = false) {
+	echo " + $cmd\n";
+	system($cmd, $retval);
+	if ($retval > 0) {
+		if ($err_ok) return false;
+		echo "ERROR: command did not complete successfully!\n";
+		echo "$cmd\n";
+		exit(1);
+	}
+	return true;
+}
+
+
+if ($mode === "create") {
+	//************************** BEGIN CREATE MODE ****************************
+	
+	// Some common escaping...
+	$sh_volgroup = escapeshellarg($volgroup);
+	
+	// First, let's make sure any partitions being used in a volume group are moved off
+	foreach ($partitions as $part) {
+		$sh_part = escapeshellarg($part);
+		if (run_command("pvdisplay $sh_part >/dev/null 2>/dev/null", true)) {
+			echo "Removing $part from volume group...\n";
+			run_command("pvmove --autobackup -y $sh_part");
+			run_command("vgreduce --autobackup y $sh_volgroup $sh_part");
+			run_command("pvremove --autobackup y $sh_part");
+		}
+	}
+	
+	// Now we're ready to create our RAID device
+	echo "Creating RAID device: ";
+	for ($raiddev = 0; file_exists("/dev/md$raiddev"); $raiddev++);
+	echo "/dev/md$raiddev\n";
+	
+	$num_parts = count($partitions);
+	$sh_partitions = "";
+	foreach ($partitions as $part) {
+		$sh_partitions .= escapeshellarg($part) . " ";
+	}
+	
+	run_command("mdadm --create --verbose /dev/md$raiddev --level=$level --raid-devices=$num_parts $sh_partitions");
+	run_command("pvcreate /dev/md$raiddev");
+	run_command("vgextend $sh_volgroup /dev/md$raiddev");
+	
+	//************************** END CREATE MODE ****************************
+} else if ($mode === "extend") {
+	//************************** BEGIN EXTEND MODE ****************************
+	
+	//************************** END EXTEND MODE ****************************
 }

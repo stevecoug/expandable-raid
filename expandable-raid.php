@@ -35,6 +35,8 @@ try {
 			case "-r":
 			case "--raid":
 				$raiddev = $argv[++$i];
+				if ($raiddev[0] !== "/") $raiddev = "/dev/$raiddev";
+				if (!preg_match('|^/dev/md[0-9]+$|', $raiddev)) throw new Exception("Invalid RAID device: $raiddev");
 			break;
 			
 			case "-p":
@@ -81,6 +83,8 @@ try {
 
 function run_command($cmd, $err_ok = false) {
 	echo " + $cmd\n";
+	return true;
+	
 	system($cmd, $retval);
 	if ($retval > 0) {
 		if ($err_ok) return false;
@@ -92,41 +96,85 @@ function run_command($cmd, $err_ok = false) {
 }
 
 
+// Some common escaping...
+$sh_volgroup = escapeshellarg($volgroup);
+
+
 if ($mode === "create") {
-	//************************** BEGIN CREATE MODE ****************************
+	//************************** BEGIN CREATE MODE PREPARATION ****************************
 	
-	// Some common escaping...
-	$sh_volgroup = escapeshellarg($volgroup);
-	
-	// First, let's make sure any partitions being used in a volume group are moved off
+	// Make sure any partitions being used in a volume group are moved off
 	foreach ($partitions as $part) {
 		$sh_part = escapeshellarg($part);
 		if (run_command("pvdisplay $sh_part >/dev/null 2>/dev/null", true)) {
 			echo "Removing $part from volume group...\n";
-			run_command("pvmove --autobackup -y $sh_part");
+			run_command("pvmove --autobackup y $sh_part");
 			run_command("vgreduce --autobackup y $sh_volgroup $sh_part");
 			run_command("pvremove --autobackup y $sh_part");
 		}
 	}
 	
-	// Now we're ready to create our RAID device
-	echo "Creating RAID device: ";
-	for ($raiddev = 0; file_exists("/dev/md$raiddev"); $raiddev++);
-	echo "/dev/md$raiddev\n";
+	for ($i = 0; file_exists("/dev/md$i"); $i++);
+	$raiddev = "/dev/md$i";
 	
-	$num_parts = count($partitions);
-	$sh_partitions = "";
-	foreach ($partitions as $part) {
-		$sh_partitions .= escapeshellarg($part) . " ";
+	//************************** END CREATE MODE PREPARATION ****************************
+} else if ($mode === "extend") {
+	//************************** BEGIN EXTEND MODE PREPARATION ****************************
+	
+	echo "Removing RAID device: $raiddev\n";
+	run_command("pvmove --autobackup y $raiddev");
+	run_command("vgreduce --autobackup y $sh_volgroup $raiddev");
+	run_command("pvremove --autobackup y $raiddev");
+	
+	echo "Determining current partitions in the RAID device...\n";
+	$old_partitions = false;
+	$dev = substr($raiddev, 5);
+	foreach (file("/proc/mdstat") as $line) {
+		if (!preg_match("/^$dev : active raid([0-9]) (.*)/", $line, $regs)) continue;
+		
+		$level = intval($regs[1]);
+		if (!in_array($level, [ 0, 1, 5 ])) {
+			echo "ERROR: Unknown RAID level ($level)\n";
+			exit(2);
+		}
+		
+		if (!preg_match_all('/([a-z]+[0-9]+)\[[0-9]+\]/', $regs[2], $matches)) {
+			echo "ERROR: Could not get partition information from $regs[2]\n";
+			exit(2);
+		}
+		$old_partitions = $matches[1];
+	}
+	if ($old_partitions === false) {
+		echo "ERROR: Could not get partition information for $raiddev\n";
+		exit(2);
+	}
+	foreach ($old_partitions as $part) {
+		$partitions[] = $part;
+		echo " + $part\n";
 	}
 	
-	run_command("mdadm --create --verbose /dev/md$raiddev --level=$level --raid-devices=$num_parts $sh_partitions");
-	run_command("pvcreate /dev/md$raiddev");
-	run_command("vgextend $sh_volgroup /dev/md$raiddev");
+	echo "Stopping RAID device $raiddev\n";
+	run_command("mdadm --stop $raiddev");
 	
-	//************************** END CREATE MODE ****************************
-} else if ($mode === "extend") {
-	//************************** BEGIN EXTEND MODE ****************************
-	
-	//************************** END EXTEND MODE ****************************
+	//************************** END EXTEND MODE PREPARATION ****************************
 }
+
+
+
+
+//************************** BEGIN RAID DEVICE CREATION ****************************
+
+echo "Creating RAID device: $raiddev\n";
+
+$num_parts = count($partitions);
+$sh_partitions = "";
+foreach ($partitions as $part) {
+	$sh_partitions .= escapeshellarg($part) . " ";
+}
+
+run_command("mdadm --create --verbose /dev/md$raiddev --level=$level --raid-devices=$num_parts $sh_partitions");
+run_command("pvcreate /dev/md$raiddev");
+run_command("vgextend $sh_volgroup /dev/md$raiddev");
+
+//************************** END RAID DEVICE CREATION ****************************
+

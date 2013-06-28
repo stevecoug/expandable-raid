@@ -5,11 +5,12 @@ $mode = false;
 $partitions = [];
 $volgroup = false;
 $raiddev = false;
-$chunk = 32;
+$chunk = 64;
 $level = 5;
+$layout = false;
 
 try {
-	while ($i = 1; $i < $argc; $i++) {
+	for ($i = 1; $i < $argc; $i++) {
 		switch ($argv[$i]) {
 			case "-c":
 			case "--create":
@@ -23,13 +24,14 @@ try {
 			
 			case "-v":
 			case "--vg":
+			case "--volgroup":
 				$volgroup = $argv[++$i];
 			break;
 			
 			case "-l":
 			case "--level":
 				$level = intval($argv[++$i]);
-				if (!in_array($level, [ 0, 1, 5 ])) throw new Exception("Invalid RAID level: $level");
+				if (!in_array($level, [ 0, 1, 5, 10 ])) throw new Exception("Invalid RAID level: $level");
 			break;
 			
 			case "-r":
@@ -55,6 +57,10 @@ try {
 				if ($chunk < 1 || $chunk > 1024) throw new Exception("Chunk size must be between 1-1024");
 			break;
 			
+			case "--layout":
+				$layout = $argv[++$i];
+			break;
+			
 			default:
 				throw new Exception("Invalid argument: ".$argv[$i]);
 			break;
@@ -73,7 +79,7 @@ try {
 	printf("ERROR: %s\n", $e->getMessage());
 	echo "\n";
 	echo "Usage:\n";
-	echo "    expandable-raid.php --create [--level RAIDLEVEL] [--chunk CHUNKKB] --vg VOLGROUP --partitions PART1,PART2,PART3\n";
+	echo "    expandable-raid.php --create [--level RAIDLEVEL] [--chunk CHUNKKB] [--layout LAYOUT] --vg VOLGROUP --partitions PART1,PART2,PART3\n";
 	echo "    expandable-raid.php --extend --vg VOLGROUP --raid RAIDDEV --partition PART1\n";
 	echo "\n";
 	exit(1);
@@ -83,7 +89,6 @@ try {
 
 function run_command($cmd, $err_ok = false) {
 	echo " + $cmd\n";
-	return true;
 	
 	system($cmd, $retval);
 	if ($retval > 0) {
@@ -122,7 +127,7 @@ if ($mode === "create") {
 	//************************** BEGIN EXTEND MODE PREPARATION ****************************
 	
 	echo "Removing RAID device: $raiddev\n";
-	run_command("pvmove --autobackup y $raiddev");
+	run_command("pvmove --autobackup y $raiddev", true);
 	run_command("vgreduce --autobackup y $sh_volgroup $raiddev");
 	run_command("pvremove --autobackup y $raiddev");
 	
@@ -133,7 +138,7 @@ if ($mode === "create") {
 		if (!preg_match("/^$dev : active raid([0-9]) (.*)/", $line, $regs)) continue;
 		
 		$level = intval($regs[1]);
-		if (!in_array($level, [ 0, 1, 5 ])) {
+		if (!in_array($level, [ 0, 1, 5, 10 ])) {
 			echo "ERROR: Unknown RAID level ($level)\n";
 			exit(2);
 		}
@@ -152,6 +157,8 @@ if ($mode === "create") {
 		$partitions[] = $part;
 		echo " + $part\n";
 	}
+	
+	##TODO We still need the chunk size
 	
 	echo "Stopping RAID device $raiddev\n";
 	run_command("mdadm --stop $raiddev");
@@ -172,9 +179,12 @@ foreach ($partitions as $part) {
 	$sh_partitions .= escapeshellarg($part) . " ";
 }
 
-run_command("mdadm --create --verbose /dev/md$raiddev --level=$level --raid-devices=$num_parts $sh_partitions");
-run_command("pvcreate /dev/md$raiddev");
-run_command("vgextend $sh_volgroup /dev/md$raiddev");
+$other_options = "";
+if ($layout !== false) $other_option .= " --layout=".escapeshellarg($layout);
+
+run_command("mdadm --create --verbose $raiddev --level=$level --chunk=$chunk $other_options --raid-devices=$num_parts $sh_partitions");
+run_command("pvcreate $raiddev");
+run_command("vgextend $sh_volgroup $raiddev");
 
 //************************** END RAID DEVICE CREATION ****************************
 

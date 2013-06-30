@@ -8,6 +8,7 @@ $raiddev = false;
 $chunk = 64;
 $level = 5;
 $layout = false;
+$dryrun = false;
 
 try {
 	for ($i = 1; $i < $argc; $i++) {
@@ -61,6 +62,10 @@ try {
 				$layout = $argv[++$i];
 			break;
 			
+			case "--dry-run":
+				$dryrun = true;
+			break;
+			
 			default:
 				throw new Exception("Invalid argument: ".$argv[$i]);
 			break;
@@ -90,6 +95,8 @@ try {
 function run_command($cmd, $err_ok = false) {
 	echo " + $cmd\n";
 	
+	if ($GLOBALS['dryrun']) return true;
+	
 	system($cmd, $retval);
 	if ($retval > 0) {
 		if ($err_ok) return false;
@@ -113,9 +120,9 @@ if ($mode === "create") {
 		$sh_part = escapeshellarg($part);
 		if (run_command("pvdisplay $sh_part >/dev/null 2>/dev/null", true)) {
 			echo "Removing $part from volume group...\n";
-			run_command("pvmove --autobackup y $sh_part");
+			run_command("pvmove --autobackup y $sh_part", true);
 			run_command("vgreduce --autobackup y $sh_volgroup $sh_part");
-			run_command("pvremove --autobackup y $sh_part");
+			run_command("pvremove $sh_part");
 		}
 	}
 	
@@ -129,7 +136,7 @@ if ($mode === "create") {
 	echo "Removing RAID device: $raiddev\n";
 	run_command("pvmove --autobackup y $raiddev", true);
 	run_command("vgreduce --autobackup y $sh_volgroup $raiddev");
-	run_command("pvremove --autobackup y $raiddev");
+	run_command("pvremove $raiddev");
 	
 	echo "Determining current partitions in the RAID device...\n";
 	$old_partitions = false;
@@ -153,15 +160,23 @@ if ($mode === "create") {
 		echo "ERROR: Could not get partition information for $raiddev\n";
 		exit(2);
 	}
-	foreach ($old_partitions as $part) {
-		$partitions[] = $part;
-		echo " + $part\n";
+	
+	// Get the chunk size for the existing RAID device
+	$md = substr($raiddev, 5);
+	if (file_exists("/sys/block/$md/md/chunk_size")) {
+		$chunk = intval(file_get_contents("/sys/block/$md/md/chunk_size")) / 1024;
 	}
 	
-	##TODO We still need the chunk size
 	
 	echo "Stopping RAID device $raiddev\n";
 	run_command("mdadm --stop $raiddev");
+	
+	echo "Zeroing superblocks for old RAID drives\n";
+	foreach ($old_partitions as $part) {
+		echo " + $part\n";
+		run_command("mdadm --zero-superblock $part");
+		$partitions[] = $part;
+	}
 	
 	//************************** END EXTEND MODE PREPARATION ****************************
 }
@@ -180,7 +195,7 @@ foreach ($partitions as $part) {
 }
 
 $other_options = "";
-if ($layout !== false) $other_option .= " --layout=".escapeshellarg($layout);
+if ($layout !== false) $other_options .= " --layout=".escapeshellarg($layout);
 
 run_command("mdadm --create --verbose $raiddev --level=$level --chunk=$chunk $other_options --raid-devices=$num_parts $sh_partitions");
 run_command("pvcreate $raiddev");

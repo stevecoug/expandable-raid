@@ -11,6 +11,12 @@ expandable-raid.php --create [--level RAIDLEVEL] [--chunk CHUNKKB] [--layout LAY
 expandable-raid.php --extend --vg VOLGROUP --raid RAIDDEV --partition PART1
 ```
 
+### Filesystem hints
+
+You can achieve better performance from your filesystem if it is properly aligned to your RAID devices.  See the following page for more information: http://erikugel.wordpress.com/2011/04/14/the-quest-for-the-fastest-linux-filesystem/
+
+This page has a calculator for the ext4 filesystem's tuning parameters: http://uclibc.org/~aldot/mkfs_stride.html
+
 ### How it works
 
 Have you ever wanted to have a Drobo-like ability to add a disk to your RAID array and have the storage just expand to fill it?  I’ve been toying around with a way to do just that.

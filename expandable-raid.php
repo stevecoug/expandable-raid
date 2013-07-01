@@ -42,6 +42,10 @@ try {
 				$mode = "extend";
 			break;
 			
+			case "--remove":
+				$mode = "remove";
+			break;
+			
 			case "-v":
 			case "--vg":
 			case "--volgroup":
@@ -94,7 +98,7 @@ try {
 	if ($mode === false) throw new Exception("You must specify either --create or --extend");
 	
 	if ($volgroup === false) throw new Exception("Volume group must be specified");
-	if (count($partitions) == 0) throw new Exception("Partitions must be specified");
+	if (count($partitions) == 0 && in_array($mode, [ "create", "extend" ])) throw new Exception("Partitions must be specified");
 	
 	if ($mode == "extend") {
 		if ($raiddev === false) throw new Exception("RAID device must be specified");
@@ -105,6 +109,7 @@ try {
 	echo "Usage:\n";
 	echo "    expandable-raid.php --create [--level RAIDLEVEL] [--chunk CHUNKKB] [--layout LAYOUT] --vg VOLGROUP --partitions PART1,PART2,PART3\n";
 	echo "    expandable-raid.php --extend --vg VOLGROUP --raid RAIDDEV --partition PART1\n";
+	echo "    expandable-raid.php --remove --vg VOLGROUP --raid RAIDDEV\n";
 	echo "\n";
 	exit(1);
 }
@@ -148,19 +153,15 @@ try {
 		$raiddev = "/dev/md$i";
 		
 		//************************** END CREATE MODE PREPARATION ****************************
-	} else if ($mode === "extend") {
-		//************************** BEGIN EXTEND MODE PREPARATION ****************************
+	} else if ($mode === "extend" || $mode === "remove") {
+		//************************** BEGIN EXTEND MODE PREPARATION (OR REMOVE MODE) ****************************
 		
-		echo "Removing RAID device: $raiddev\n";
-		run_command("pvmove --autobackup y $raiddev", true);
-		run_command("vgreduce --autobackup y $sh_volgroup $raiddev");
-		run_command("pvremove $raiddev");
-		
-		echo "Determining current partitions in the RAID device...\n";
 		$old_partitions = false;
 		$dev = substr($raiddev, 5);
+		
+		echo "Determining current partitions in $raiddev...\n";
 		foreach (file("/proc/mdstat") as $line) {
-			if (!preg_match("/^$dev : active raid([0-9]) (.*)/", $line, $regs)) continue;
+			if (!preg_match("/^$dev : active raid([0-9]+) (.*)/", $line, $regs)) continue;
 			
 			$level = intval($regs[1]);
 			if (!in_array($level, [ 0, 1, 5, 10 ])) {
@@ -182,12 +183,37 @@ try {
 			$chunk = intval(file_get_contents("/sys/block/$md/md/chunk_size")) / 1024;
 		}
 		
+		// Get the layout of the existing RAID device
+		if (in_array($level, [ 5, 10 ])) {
+			$output = shell_exec("mdadm --detail $raiddev");
+			if (!preg_match('/Layout : (.*)$/m', $output, $regs)) throw new Exception("Could not determine layout of $raiddev");
+			$layout = $regs[1];
+			
+			if ($level == 10) {
+				list($layout_type, $layout_num) = explode("=", $layout);
+				$layout_num = intval($layout_num);
+				if ($layout_num < 1 || !in_array($layout_type, [ "near", "far", "offset" ])) {
+					throw new Exception("$raiddev has an unknown layout: $layout");
+				}
+				$layout = $layout_type[0] . $layout_num;
+			} else if ($level == 5) {
+				if (!in_array($layout, [ "left-asymmetric", "left-symmetric", "right-asymmetric", "right-symmetric" ])) {
+					throw new Exception("$raiddev has an unknown layout: $layout");
+				}
+			}
+		}
+		
+		echo "Removing RAID device: $raiddev\n";
+		run_command("pvmove --autobackup y $raiddev", true);
+		run_command("vgreduce --autobackup y $sh_volgroup $raiddev");
+		run_command("pvremove $raiddev");
 		
 		echo "Stopping RAID device $raiddev\n";
 		run_command("mdadm --stop $raiddev");
 		
 		echo "Zeroing superblocks for old RAID drives\n";
 		foreach ($old_partitions as $part) {
+			$part = "/dev/$part";
 			echo " + $part\n";
 			run_command("mdadm --zero-superblock $part");
 			$partitions[] = $part;
@@ -195,28 +221,30 @@ try {
 		
 		//************************** END EXTEND MODE PREPARATION ****************************
 	}
-
-
-
-
-	//************************** BEGIN RAID DEVICE CREATION ****************************
-
-	echo "Creating RAID device: $raiddev\n";
-
-	$num_parts = count($partitions);
-	$sh_partitions = "";
-	foreach ($partitions as $part) {
-		$sh_partitions .= escapeshellarg($part) . " ";
+	
+	
+	
+	
+	if ($mode === "create" || $mode === "extend") {
+		//************************** BEGIN RAID DEVICE CREATION ****************************
+		
+		echo "Creating RAID device: $raiddev\n";
+		
+		$num_parts = count($partitions);
+		$sh_partitions = "";
+		foreach ($partitions as $part) {
+			$sh_partitions .= escapeshellarg($part) . " ";
+		}
+		
+		$other_options = "";
+		if ($layout !== false) $other_options .= " --layout=".escapeshellarg($layout);
+		
+		run_command("mdadm --create --verbose $raiddev --level=$level --chunk=$chunk $other_options --raid-devices=$num_parts $sh_partitions");
+		run_command("pvcreate $raiddev");
+		run_command("vgextend $sh_volgroup $raiddev");
+		
+		//************************** END RAID DEVICE CREATION ****************************
 	}
-
-	$other_options = "";
-	if ($layout !== false) $other_options .= " --layout=".escapeshellarg($layout);
-
-	run_command("mdadm --create --verbose $raiddev --level=$level --chunk=$chunk $other_options --raid-devices=$num_parts $sh_partitions");
-	run_command("pvcreate $raiddev");
-	run_command("vgextend $sh_volgroup $raiddev");
-
-	//************************** END RAID DEVICE CREATION ****************************
 } catch (Exception $e) {
 	printf("ERROR: %s\n", $e->getMessage());
 	exit(2);

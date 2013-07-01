@@ -1,7 +1,8 @@
 expandable-raid
 ===============
 
-Use Linux RAID and LVM together to add disks to your RAID array without stopping it
+Use Linux RAID and LVM together to add disks to your RAID array without stopping it, similar to how a Drobo works.  I have no
+idea how Drobo actually accomplishes this, but this script will accomplish some of the same magic.
 
 ### Usage
 

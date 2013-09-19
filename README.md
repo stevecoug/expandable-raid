@@ -7,8 +7,14 @@ idea how Drobo actually accomplishes this, but this script will accomplish some 
 ### Usage
 
 ```
-expandable-raid.php --create [--level RAIDLEVEL] [--chunk CHUNKKB] [--layout LAYOUT] --vg VOLGROUP --partitions PART1,PART2,PART3
-expandable-raid.php --extend --vg VOLGROUP --raid RAIDDEV --partition PART1
+expandable-raid.pl --create [--level RAIDLEVEL] [--chunk CHUNKKB] [--layout LAYOUT] --vg VOLGROUP --partitions PART1,PART2,PART3 [--dryrun]
+expandable-raid.pl --extend --vg VOLGROUP --raid RAIDDEV --partition PART1 [--dryrun]
+expandable-raid.pl --remove --vg VOLGROUP --raid RAIDDEV [--dryrun]
+expandable-raid.pl --version
+expandable-raid.pl --help
+
+Setting EXPRAID_DEBUG forces  "--dryrun mode". 
+
 ```
 
 ### Filesystem hints

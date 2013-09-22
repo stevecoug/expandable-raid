@@ -82,9 +82,12 @@ my $sh_volgroup = php_escapeshellarg($volgroup);
 
 eval {
   for ( $mode ) {
-    /^(?:create)$       /x && do { $raiddev = create_prep(\@partitions, $sh_volgroup );     };
-    /^(?:extend|remove)$/x && do { extend_remove_prep(                    ); };
-    /^(?:create|extend)$/x && do { create_raid(                           ); };
+    /^(?:create)$       /x
+      && do { $raiddev = create_prep(\@partitions, $sh_volgroup ); };
+    /^(?:extend|remove)$/x
+      && do { extend_remove_prep(                    ); };
+    /^(?:create|extend)$/x
+      && do { create_raid(                           ); };
   }
   1; # Success; no exceptions.
 } or die "$@\n";
@@ -108,7 +111,13 @@ sub create_prep{
   return "/dev/md$i";
 }
 
+
+# Globals read:
+# Globals written/modified:
+# Globals created:
 sub extend_remove_prep { ... }
+
+
 sub create_raid { ... }
 
 # ------------- utility functions ------------

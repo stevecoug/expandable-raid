@@ -24,6 +24,11 @@ use Getopt::Long qw( VersionMessage );
 
 our $VERSION = '1.0';
 
+# CONVENTIONS: Constants are UPPER_CASED. Package Globals are $UPPER_CASED.
+#              Lexicals are $lower_cased.  This eases the transition to an
+#              encapsulated-procedural (sometimes called "Skimmable Code")
+#              coding paradigm, vital to cleanly transition from PHP to Perl.
+
 use constant {
   FALSE            => 0,          TRUE             => 1,           ERR_OK => 1,
   DEFAULT_CHUNK    => 64,                   DEFAULT_LEVEL    => 5,
@@ -34,58 +39,58 @@ use constant {
 
 BEGIN { Getopt::Long::Configure('debug') if $ENV{EXPRAID_OPTIONS_DEBUG} }
 
-our( $mode, $volgroup, $raiddev, $layout, $dryrun )  =  ( FALSE ) x 5;
-our( $chunk, $level, @partitions )  =  ( DEFAULT_CHUNK, DEFAULT_LEVEL, () );
+our( $MODE, $VOLGROUP, $RAIDDEV, $LAYOUT, $DRYRUN )  =  ( FALSE ) x 5;
+our( $CHUNK, $LEVEL, @PARTITIONS )  =  ( DEFAULT_CHUNK, DEFAULT_LEVEL, () );
 
-$dryrun = TRUE if $ENV{EXPRAID_DEBUG};
+$DRYRUN = TRUE if $ENV{EXPRAID_DEBUG};
 
 GetOptions(
-  'create|c'                  => sub { $mode     = 'create';       },
-  'extend|x'                  => sub { $mode     = 'extend';       },
-  'remove|rm'                 => sub { $mode     = 'remove';       },
-  'volgroup|vg|v=s'           => sub { $volgroup = $_[1];          },
+  'create|c'                  => sub { $MODE     = 'create';       },
+  'extend|x'                  => sub { $MODE     = 'extend';       },
+  'remove|rm'                 => sub { $MODE     = 'remove';       },
+  'volgroup|vg|v=s'           => sub { $VOLGROUP = $_[1];          },
   'help|h|?'                  => sub { print usage(); exit(0);     },
   'version'                   => sub { VersionMessage( $VERSION ); },
-  'layout|l=s'                => \$layout,
-  'dry-run|dryrun|debug|d'    => \$dryrun,
+  'layout|l=s'                => \$LAYOUT,
+  'dry-run|dryrun|debug|d'    => \$DRYRUN,
   'partitions|p=s'  => sub {
-    push @partitions, map { s{^([^/])}{/dev/$1}; $_; } split /,/, $_[1];
+    push @PARTITIONS, map { s{^([^/])}{/dev/$1}; $_; } split /,/, $_[1];
   },
   'level|l=i'                 => sub {
-    $level = $_[1];
-    die "Invalid RAID level: $level\n" unless $level =~ VALID_LEVELS;
+    $LEVEL = $_[1];
+    die "Invalid RAID level: $LEVEL\n" unless $LEVEL =~ VALID_LEVELS;
   },
   'raid|r=s'                  => sub {
-    ( $raiddev = $_[1] ) =~ s{^([^/])}{/dev/$1};
-    die "Invalid RAID device: $raiddev\n"
-      unless $raiddev =~ m{^/dev/md[0-9]+$};
+    ( $RAIDDEV = $_[1] ) =~ s{^([^/])}{/dev/$1};
+    die "Invalid RAID device: $RAIDDEV\n"
+      unless $RAIDDEV =~ m{^/dev/md[0-9]+$};
   },
   'chunk=i'                   => sub {
-    $chunk = $_[1];
+    $CHUNK = $_[1];
     die "Chunk size must be between 1-1024.\n"
-      if $chunk < MIN_VALID_CHUNK || $chunk > MAX_VALID_CHUNK;
+      if $CHUNK < MIN_VALID_CHUNK || $CHUNK > MAX_VALID_CHUNK;
   },
 ) or die usage();
 
 eval {
-  die "You must specify either --create or --extend\n"  if ! $mode;
-  die "Volume group must be specified\n"  if ! $volgroup;
+  die "You must specify either --create or --extend\n"  if ! $MODE;
+  die "Volume group must be specified\n"  if ! $VOLGROUP;
   die "Partitions must be specified\n"
-    if ! @partitions && $mode =~ m/^(?:create|extend)$/;
-  die "RAID device must be specified\n"  if $mode eq 'extend' && ! $raiddev;
+    if ! @PARTITIONS && $MODE =~ m/^(?:create|extend)$/;
+  die "RAID device must be specified\n"  if $MODE eq 'extend' && ! $RAIDDEV;
   1; # Success.
 } or die $@, usage();
 
 
 # I'd prefer using system PROGRAM LIST but changes would be too pervasive atm.
-my $sh_volgroup = php_escapeshellarg($volgroup);
+my $sh_volgroup = php_escapeshellarg($VOLGROUP);
 
 eval {
-  for ( $mode ) {
+  for ( $MODE ) {
     /^(?:create)$       /x
-      && do { $raiddev = create_prep(\@partitions, $sh_volgroup ); };
+      && do { $RAIDDEV = create_prep(\@PARTITIONS, $sh_volgroup ); };
     /^(?:extend|remove)$/x
-      && do { extend_remove_prep(                    ); };
+      && do { ( $LEVEL, $CHUNK ) = extend_remove_prep( $RAIDDEV, $LEVEL, $CHUNK         ); };
     /^(?:create|extend)$/x
       && do { create_raid(                           ); };
   }
@@ -115,7 +120,34 @@ sub create_prep{
 # Globals read:
 # Globals written/modified:
 # Globals created:
-sub extend_remove_prep { ... }
+sub extend_remove_prep {
+  my( $raiddev, $level, $chunk ) = @_;
+  my @old_partitions;
+  my $dev = substr( $raiddev, 5 );
+  print "Determining current partitions in $raiddev...\n";
+  {
+    open my $mdstat_fh, '<', '/proc/mdstat' or die $!;
+    while( my $line = <$mdstat_fh> ) {
+      next unless $line =~ m/^$dev : active raid([0-9]+) (.*)/;
+      my $partition_info;
+      ( $level, $partition_info ) = ( $1, $2 );
+      die "ERROR: Unknown RAID level ($level)\n"
+        unless $level =~ m/^(?:0|1|5|10)$/;
+      die "ERROR: Could not get partition information from $partition_info\n"
+        unless @old_partitions = $partition_info =~ /([a-z]+[0-9]+)\[[0-9]+\]/g;
+    }
+  } # Implicit close of $mdstat_fh.
+  die "ERROR: Could not get partition information for $raiddev\n"
+    unless @old_partitions;
+    
+  # Get the chunk size for the existing RAID device
+  if( -e "/sys/block/$dev/md/chunk_size" ) {
+    open my $cs_fh, '<', "/sys/block/$dev/md/chunk_size" or die $!;
+    $chunk = int( <$cs_fh> / 1024 );
+  } # Implicit close of $cs_fh;
+
+  # Get the layout of the existing RAID device
+}
 
 
 sub create_raid { ... }
@@ -146,7 +178,7 @@ sub php_escapeshellarg {
 sub run_command {
   my( $cmd, $err_ok ) = @_;
   print " + $cmd\n";
-  return TRUE if $dryrun || system( $cmd ) == 0;
+  return TRUE if $DRYRUN || system( $cmd ) == 0;
   return FALSE if $err_ok;
   die "ERROR: Command did not complete successfully!\n";
 }

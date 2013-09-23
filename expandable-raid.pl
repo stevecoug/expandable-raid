@@ -90,7 +90,10 @@ eval {
     /^(?:create)$       /x
       && do { $RAIDDEV = create_prep(\@PARTITIONS, $sh_volgroup ); };
     /^(?:extend|remove)$/x
-      && do { ( $LEVEL, $CHUNK ) = extend_remove_prep( $RAIDDEV, $LEVEL, $CHUNK         ); };
+      && do {
+        ( $LEVEL, $CHUNK, $LAYOUT, @PARTITIONS )
+          = extend_remove_prep( $RAIDDEV, $LEVEL, $CHUNK );
+      };
     /^(?:create|extend)$/x
       && do { create_raid(                           ); };
   }
@@ -147,9 +150,45 @@ sub extend_remove_prep {
   } # Implicit close of $cs_fh;
 
   # Get the layout of the existing RAID device
+  my $layout;
+  if( $level =~ m/^(?:5|10)$/ ) {
+    my $output = `mdadm --detail $raiddev`;
+    die "Could not determine layout of $raiddev"
+      unless $output =~ m/Layout : (.*)$/m;
+    $layout = $1;
+
+    if( $level == 10 ) {
+      my( $layout_type, $layout_num ) = split /=/, $layout;
+      $layout_num = int $layout_num;
+      die "$raiddev has an unknown layout: $layout\n"
+        if $layout_num < 1 || $layout_type !~ m/^(?:near|far|offset)$/;
+      $layout = substr( $layout_type, 0, 1 ) . $layout_num;
+    }
+    elsif( $level == 5 ) {
+      die "$raiddev has an unknown layout: $layout\n"
+        unless $layout =~ m/^(?:left|right)-a?symmetric$/;
+    }
+  }
+  print "Removing RAID device: $raiddev\n";
+  run_command( "pvmove --autobackup y $raiddev", ERR_OK );
+  run_command( "vgreduce --autobackup y $sh_volgroup $raiddev" );
+  run_command( "pvremove $raiddev" );
+
+  print "Stopping RAID device $raiddev\n";
+  run_command( "mdadm --stop $raiddev" );
+
+  print "Zeroing superblocks for old RAID drives\n";
+  my @partitions;
+  foreach my $part ( @old_partitions ) {
+    $part = "/dev/$part";
+    print " + $part\n";
+    run_command( "mdadm --zero-superblock $part" );
+    push @partitions, $part;
+  }
+  return( $level, $chunk, $layout, @partitions );
 }
 
-
+#                                                               465:166 / 464:160
 sub create_raid { ... }
 
 # ------------- utility functions ------------

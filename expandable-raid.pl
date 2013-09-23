@@ -153,19 +153,19 @@ sub extend_remove_prep {
   my $layout;
   if( $level =~ m/^(?:5|10)$/ ) {
     my $output = `mdadm --detail $raiddev`;
-    die "Could not determine layout of $raiddev"
+    die "ERROR: Could not determine layout of $raiddev\n"
       unless $output =~ m/Layout : (.*)$/m;
     $layout = $1;
 
     if( $level == 10 ) {
       my( $layout_type, $layout_num ) = split /=/, $layout;
       $layout_num = int $layout_num;
-      die "$raiddev has an unknown layout: $layout\n"
+      die "ERROR: $raiddev has an unknown layout: $layout\n"
         if $layout_num < 1 || $layout_type !~ m/^(?:near|far|offset)$/;
       $layout = substr( $layout_type, 0, 1 ) . $layout_num;
     }
     elsif( $level == 5 ) {
-      die "$raiddev has an unknown layout: $layout\n"
+      die "ERROR: $raiddev has an unknown layout: $layout\n"
         unless $layout =~ m/^(?:left|right)-a?symmetric$/;
     }
   }

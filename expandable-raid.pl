@@ -60,8 +60,7 @@ GetOptions(
   },
   'raid|r=s'                  => sub {
     ( $RAIDDEV = $_[1] ) =~ s{^([^/])}{/dev/$1};
-    die "Invalid RAID device: $RAIDDEV\n"
-      unless $RAIDDEV =~ m{^/dev/md[0-9]+$};
+    die "Invalid RAID device: $RAIDDEV\n" unless $RAIDDEV =~ m{^/dev/md[0-9]+$};
   },
   'chunk=i'                   => sub {
     $CHUNK = $_[1];
@@ -80,7 +79,6 @@ eval {
 } or die $@, usage();
 
 
-# I'd prefer using system PROGRAM LIST but changes would be too pervasive atm.
 my $sh_volgroup = php_escapeshellarg($VOLGROUP);
 
 eval {
@@ -106,7 +104,7 @@ eval {
 sub create_prep{
   my( $parts, $sh_vg ) = @_;
   foreach my $part ( @{$parts} ) {
-    my $sh_part = escapeshellarg($part);
+    my $sh_part = php_escapeshellarg($part);
     if( run_command( "pvdisplay $sh_part >/dev/null 2>/dev/null", ERR_OK ) ) {
       print "Removing $part from volume group...\n";
       run_command( "pvmove --autobackup y $sh_part", ERR_OK );
@@ -195,9 +193,9 @@ sub create_raid {
   print "Creating RAID devicd $raiddev\n";
 
   my $num_parts = @partitions;
-  my $sh_partitions = join q{ }, map { escapeshellarg($_) } @partitions;
+  my $sh_partitions = join q{ }, map { php_escapeshellarg($_) } @partitions;
   my $other_options = q{};
-  $other_options = " --layout=" . escapeshellarg($layout);
+  $other_options = " --layout=" . php_escapeshellarg($layout);
 
   run_command("mdadm --create --verbose $raiddev --level=$level --chunk=$chunk $other_options --raid-devices=$num_parts $sh_partitions");
   run_command("pvcreate $raiddev");

@@ -56,7 +56,11 @@ GetOptions(
     'layout|l=s'             => \$LAYOUT,
     'dry-run|dryrun|debug|d' => \$DRYRUN,
     'partitions|p=s'         => sub {
-        push @PARTITIONS, map { s{^([^/])}{/dev/$1}; $_; } split /,/, $_[1];
+        push @PARTITIONS, map {
+            my $part = $_;
+            $part =~ s{^([^/])}{/dev/$1};
+            $part;
+          } split /,/, $_[1];
     },
     'level|l=i' => sub {
         $LEVEL = $_[1];
@@ -129,19 +133,21 @@ sub extend_remove_prep {
     my @old_partitions;
     my $dev = substr( $raiddev, 5 );
     print "Determining current partitions in $raiddev...\n";
-    {
-        open my $mdstat_fh, '<', '/proc/mdstat' or die $!;
-        while ( my $line = <$mdstat_fh> ) {
-            next unless $line =~ m/^$dev : active raid([0-9]+) (.*)/;
-            my $partition_info;
-            ( $level, $partition_info ) = ( $1, $2 );
-            die "ERROR: Unknown RAID level ($level)\n"
-              unless $level =~ m/^(?:0|1|5|10)$/;
-            die "ERROR: Could not get partition information from $partition_info\n"
-              unless @old_partitions
-                = $partition_info =~ /([a-z]+[0-9]+)\[[0-9]+\]/g;
-        }
-    }    # Implicit close of $mdstat_fh.
+    
+    open my $mdstat_fh, '<', '/proc/mdstat' or die $!;
+
+    while ( my $line = <$mdstat_fh> ) {
+        next unless $line =~ m/^$dev : active raid([0-9]+) (.*)/;
+        my $partition_info;
+        ( $level, $partition_info ) = ( $1, $2 );
+        die "ERROR: Unknown RAID level ($level)\n"
+          unless $level =~ m/^(?:0|1|5|10)$/;
+        die "ERROR: Could not get partition information from $partition_info\n"
+          unless @old_partitions
+            = $partition_info =~ /([a-z]+[0-9]+)\[[0-9]+\]/g;
+    }
+    close $mdstat_fh;
+
     die "ERROR: Could not get partition information for $raiddev\n"
       unless @old_partitions;
 
@@ -149,7 +155,8 @@ sub extend_remove_prep {
     if ( -e "/sys/block/$dev/md/chunk_size" ) {
         open my $cs_fh, '<', "/sys/block/$dev/md/chunk_size" or die $!;
         $chunk = int( <$cs_fh> / 1024 );
-    }    # Implicit close of $cs_fh;
+        close $cs_fh;
+    }
 
     # Get the layout of the existing RAID device
     my $layout;
@@ -207,6 +214,7 @@ sub create_raid {
     );
     run_command("pvcreate $raiddev");
     run_command("vgextend $sh_vg $raiddev");
+    return; # Nothing.
 }
 
 # ------------- utility functions ------------

@@ -25,9 +25,7 @@ use Getopt::Long qw( VersionMessage );
 our $VERSION = '1.0';
 
 # CONVENTIONS: Constants are UPPER_CASED. Package Globals are $UPPER_CASED.
-#              Lexicals are $lower_cased.  This eases the transition to an
-#              encapsulated-procedural (sometimes called "Skimmable Code")
-#              coding paradigm, vital to cleanly transition from PHP to Perl.
+#              Lexicals are $lower_cased.
 
 use constant {
   FALSE            => 0,          TRUE             => 1,           ERR_OK => 1,
@@ -87,19 +85,21 @@ my $sh_volgroup = php_escapeshellarg($VOLGROUP);
 
 eval {
   for ( $MODE ) {
-    /^(?:create)$       /x
-      && do { $RAIDDEV = create_prep(\@PARTITIONS, $sh_volgroup ); };
-    /^(?:extend|remove)$/x
-      && do {
-        ( $LEVEL, $CHUNK, $LAYOUT, @PARTITIONS )
-          = extend_remove_prep( $RAIDDEV, $LEVEL, $CHUNK );
-      };
-    /^(?:create|extend)$/x
-      && do { create_raid(                           ); };
+    /^(?:create)$       /x   &&   do {
+      $RAIDDEV = create_prep(\@PARTITIONS, $sh_volgroup );
+    };
+    /^(?:extend|remove)$/x   &&   do {
+      ( $LEVEL, $CHUNK, $LAYOUT, $sh_volgroup )
+        = extend_remove_prep( $RAIDDEV, $LEVEL, $CHUNK );
+    };
+    /^(?:create|extend)$/x && do {
+      create_raid( $RAIDDEV, $LAYOUT, $LEVEL, $CHUNK, $sh_volgroup, \@PARTITIONS );
+    };
   }
   1; # Success; no exceptions.
 } or die "$@\n";
 
+#  my( $raiddev, $layout, $level, $chunk, $sh_vg, @partitions ) = @_;
 
 # ------------- actions ------------
 
@@ -124,7 +124,7 @@ sub create_prep{
 # Globals written/modified:
 # Globals created:
 sub extend_remove_prep {
-  my( $raiddev, $level, $chunk ) = @_;
+  my( $raiddev, $level, $chunk, $sh_vg ) = @_;
   my @old_partitions;
   my $dev = substr( $raiddev, 5 );
   print "Determining current partitions in $raiddev...\n";
@@ -171,7 +171,7 @@ sub extend_remove_prep {
   }
   print "Removing RAID device: $raiddev\n";
   run_command( "pvmove --autobackup y $raiddev", ERR_OK );
-  run_command( "vgreduce --autobackup y $sh_volgroup $raiddev" );
+  run_command( "vgreduce --autobackup y $sh_vg $raiddev" );
   run_command( "pvremove $raiddev" );
 
   print "Stopping RAID device $raiddev\n";
@@ -189,7 +189,20 @@ sub extend_remove_prep {
 }
 
 #                                                               465:166 / 464:160
-sub create_raid { ... }
+sub create_raid {
+  my( $raiddev, $layout, $level, $chunk, $sh_vg, @partitions ) = @_;
+
+  print "Creating RAID devicd $raiddev\n";
+
+  my $num_parts = @partitions;
+  my $sh_partitions = join q{ }, map { escapeshellarg($_) } @partitions;
+  my $other_options = q{};
+  $other_options = " --layout=" . escapeshellarg($layout);
+
+  run_command("mdadm --create --verbose $raiddev --level=$level --chunk=$chunk $other_options --raid-devices=$num_parts $sh_partitions");
+  run_command("pvcreate $raiddev");
+  run_command("vgextend $sh_vg $raiddev");
+}
 
 # ------------- utility functions ------------
 

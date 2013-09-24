@@ -7,8 +7,14 @@ idea how Drobo actually accomplishes this, but this script will accomplish some 
 ### Usage
 
 ```
-expandable-raid.php --create [--level RAIDLEVEL] [--chunk CHUNKKB] [--layout LAYOUT] --vg VOLGROUP --partitions PART1,PART2,PART3
-expandable-raid.php --extend --vg VOLGROUP --raid RAIDDEV --partition PART1
+expandable-raid.pl --create [--level RAIDLEVEL] [--chunk CHUNKKB] [--layout LAYOUT] --vg VOLGROUP --partitions PART1,PART2,PART3 [--dryrun]
+expandable-raid.pl --extend --vg VOLGROUP --raid RAIDDEV --partition PART1 [--dryrun]
+expandable-raid.pl --remove --vg VOLGROUP --raid RAIDDEV [--dryrun]
+expandable-raid.pl --version
+expandable-raid.pl --help
+
+Setting EXPRAID_DEBUG forces  "--dryrun mode". 
+
 ```
 
 ### Filesystem hints
@@ -43,7 +49,9 @@ In the future, this utility may handle the partition management as well, but tha
 
 ### License and copyright
 
-Copyright (c) 2013 Steve Meyers
+Copyright (c) 2013 Steve Meyers.
+
+Perl translation (c) 2013 Steve Meyers, David Oswald.
 
 This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 

@@ -78,7 +78,7 @@ GetOptions(
     },
 ) or die usage();
 
-warn "****    DRYRUN mode.    ****\n";
+warn "****    DRYRUN mode.    ****\n" if $DRYRUN;
 
 eval {
     die "You must specify either --create or --extend\n" if !$MODE;
@@ -97,8 +97,10 @@ eval {
             $RAIDDEV = create_prep( \@PARTITIONS, $sh_volgroup );
         };
         /^(?:extend|remove)$/x && do {
-            ( $LEVEL, $CHUNK, $LAYOUT, $sh_volgroup ) =
-              extend_remove_prep( $RAIDDEV, $LEVEL, $CHUNK );
+            my @old_partitions = ();
+            ( $LEVEL, $CHUNK, $LAYOUT, @old_partitions ) =
+              extend_remove_prep( $RAIDDEV, $LEVEL, $CHUNK, $sh_volgroup );
+            @PARTITIONS = (@old_partitions, @PARTITIONS);
         };
         /^(?:create|extend)$/x && do {
             create_raid( $RAIDDEV, $LAYOUT, $LEVEL, $CHUNK, $sh_volgroup,

@@ -78,6 +78,8 @@ GetOptions(
     },
 ) or die usage();
 
+warn "****    DRYRUN mode.    ****\n";
+
 eval {
     die "You must specify either --create or --extend\n" if !$MODE;
     die "Volume group must be specified\n"               if !$VOLGROUP;

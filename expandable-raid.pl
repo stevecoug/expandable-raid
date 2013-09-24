@@ -199,12 +199,12 @@ sub extend_remove_prep {
 
 
 sub create_raid {
-    my ( $raiddev, $layout, $level, $chunk, $sh_vg, @partitions ) = @_;
+    my ( $raiddev, $layout, $level, $chunk, $sh_vg, $parts_aref ) = @_;
 
     print "Creating RAID devicd $raiddev\n";
 
-    my $num_parts     = @partitions;
-    my $sh_partitions = join q{ }, map { php_escapeshellarg($_) } @partitions;
+    my $num_parts     = @$parts_aref;
+    my $sh_partitions = join q{ }, map { php_escapeshellarg($_) } @$parts_aref;
     my $other_options = q{};
     $other_options = " --layout=" . php_escapeshellarg($layout);
 

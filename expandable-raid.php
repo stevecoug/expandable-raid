@@ -11,7 +11,7 @@
  * 
  * https://github.com/stevecoug/expandable-raid
  * 
- * Copyright (c) 2013 Steve Meyers
+ * Copyright (c) 2014 Steve Meyers
  * 
  * This Source Code Form is subject to the terms of the Mozilla Public License,
  * v. 2.0. If a copy of the MPL was not distributed with this file, You can
@@ -27,6 +27,7 @@ $raiddev = false;
 $chunk = 64;
 $level = 5;
 $layout = false;
+$sync = true;
 $dryrun = false;
 
 try {
@@ -85,6 +86,14 @@ try {
 				$layout = $argv[++$i];
 			break;
 			
+			case "--no-sync":
+				if (in_array($level, [ 0, 1, 6, 10 ])) {
+					$sync = false;
+				} else {
+					throw new Exception("--no-sync is only valid with RAID levels 0, 1, 6, and 10");
+				}
+			break;
+			
 			case "--dry-run":
 				$dryrun = true;
 			break;
@@ -107,7 +116,7 @@ try {
 	printf("ERROR: %s\n", $e->getMessage());
 	echo "\n";
 	echo "Usage:\n";
-	echo "    expandable-raid.php --create [--level RAIDLEVEL] [--chunk CHUNKKB] [--layout LAYOUT] --vg VOLGROUP --partitions PART1,PART2,PART3\n";
+	echo "    expandable-raid.php --create [--level RAIDLEVEL] [--chunk CHUNKKB] [--layout LAYOUT] [--no-sync] --vg VOLGROUP --partitions PART1,PART2,PART3\n";
 	echo "    expandable-raid.php --extend --vg VOLGROUP --raid RAIDDEV --partition PART1\n";
 	echo "    expandable-raid.php --remove --vg VOLGROUP --raid RAIDDEV\n";
 	echo "\n";
@@ -238,6 +247,7 @@ try {
 		
 		$other_options = "";
 		if ($layout !== false) $other_options .= " --layout=".escapeshellarg($layout);
+		if ($sync) $other_options .= " --assume-clean";
 		
 		run_command("mdadm --create --verbose $raiddev --level=$level --chunk=$chunk $other_options --raid-devices=$num_parts $sh_partitions");
 		run_command("pvcreate $raiddev");
